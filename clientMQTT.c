@@ -18,7 +18,7 @@
 /*The port used for this program*/
 #define PORT 1883
 
-int threadsFlag = 0;
+int threadsFlag = 1;
 
 int fd;
 
@@ -60,6 +60,7 @@ int main(int argc, char *argv[])
 {
    int numbytes;
    int userOption;
+   int keepAliveUser = atoi(argv[2]);
    pthread_t t_pub, t_sub, t_timer, t_rx;
    pthread_mutex_t lock;
    
@@ -70,7 +71,7 @@ int main(int argc, char *argv[])
    printf("Argv %s\n", argv[1]);
    // sConnect connect_frame = connection_building(argv[1], strlen(argv[1]), (uint16_t *)argv[2]);
 
-   sConnect connect_frame = connection_building(argv[1], strlen(argv[1]), 100);
+   sConnect connect_frame = connection_building(argv[1], strlen(argv[1]), keepAliveUser);
 
    strcpy(clientID, argv[1]);
    lengthID = strlen(clientID);
@@ -86,7 +87,7 @@ int main(int argc, char *argv[])
 
    server.sin_family = AF_INET;
    server.sin_port = htons(PORT);
-   server.sin_addr.s_addr = inet_addr("148.239.99.167");//148.239.107.212  
+   server.sin_addr.s_addr = inet_addr("192.168.100.137");//148.239.107.212  
    bzero(&(server.sin_zero),8);
 
    if(connect(fd, (struct sockaddr *)&server,  sizeof(struct sockaddr))==-1){
@@ -106,7 +107,7 @@ int main(int argc, char *argv[])
 
    printf("Type: %X\t msgLenght: %X\t ackFlag: %X\t reasonCode: %X\n", connected_ack_frame.msgType, connected_ack_frame.msgLength, connected_ack_frame.ackFlag, connected_ack_frame.reasonCode);
 
-   // system("sleep 5");
+   // system("sleep 2");
    
 
    if(connected_ack_frame.reasonCode != 0x00){
@@ -118,134 +119,136 @@ int main(int argc, char *argv[])
       
       close(fd);
       exit(-1);
+   }else{
+      sPingReq = ping_building();
+      sPingReq.msgType = 0xC0; //Request Response = 0xD0
+      //Llamada a KeepAlive
+         memset (&sa, 0, sizeof (sa));
+         sa.sa_handler = &timer_handler;
+         sigaction (SIGVTALRM, &sa, NULL);
+         
+         /* Configure the timer to expire after 250 msec... */
+         timer.it_value.tv_sec = 5;
+         
+         /* ... and every 250 msec after that. */
+         timer.it_interval.tv_sec = 5;
+
+         /* Start a virtual timer. It counts down whenever this process is
+         executing. */
+         setitimer (ITIMER_VIRTUAL, &timer, NULL);
+
    }
 
-   system("clear");
+   // system("clear");
 
-   pthread_create(&t_timer, NULL, call_setimer, NULL);
-   pthread_create(&t_rx, NULL, call_rx, NULL);
-
+   // pthread_create(&t_rx, NULL, call_rx, NULL);
 
    while(1){
-      printf("=================MQTT MENU=================\n");
-      printf("Select an option:\n 1.- Publish\t 2.-Subscribe\n");
-      scanf("%i", &userOption);
 
-      if(userOption < 1 && userOption > 2){
-         perror("Invalid option");
-         threadsFlag = 0;
-         continue;
-      }
-      if(userOption == 1){
-         pthread_create(&t_pub, NULL, call_publish, NULL);
-         pthread_join(t_pub, NULL);
-      }
+   }
 
-      if(userOption == 2){
-         pthread_create(&t_sub, NULL, call_subscribe, NULL);
-         pthread_join(t_sub, NULL);
-      }
+   // while(1){
+   //    printf("=================MQTT MENU=================\n");
+   //    printf("Select an option:\n 1.- Publish\t 2.-Subscribe\n");
+   //    scanf("%i", &userOption);
 
-      system("clear");
+   //    if(userOption < 1 && userOption > 2){
+   //       perror("Invalid option");
+   //       threadsFlag = 1;
+   //       continue;
+   //    }
+   //    // if(userOption == 1){
+   //    //    pthread_create(&t_pub, NULL, call_publish, NULL);
+   //    //    pthread_join(t_pub, NULL);
+   //    // }
+
+   //    // if(userOption == 2){
+   //    //    pthread_create(&t_sub, NULL, call_subscribe, NULL);
+   //    //    pthread_join(t_sub, NULL);
+   //    // }
+
+   //    // system("clear");
          
-   }
+   // }
    return 0;
-}
-
-void *call_rx(){
-   int numbytes;
-   char *buffer;
-   if ((numbytes=recv(fd,buffer,1024,0)) == -1){
-      printf("Error en recv() rx\n");
-      close(fd);
-      exit(-1);
-   }
-}
-
-void *call_setimer(){
-//Llamada a KeepAlive
-   memset (&sa, 0, sizeof (sa));
-	sa.sa_handler = &timer_handler;
-	sigaction (SIGVTALRM, &sa, NULL);
-	
-	/* Configure the timer to expire after 250 msec... */
-	timer.it_value.tv_sec = 1;
-	
-	/* ... and every 250 msec after that. */
-	timer.it_interval.tv_sec = 1;
-
-   /* Start a virtual timer. It counts down whenever this process is
-	executing. */
-	setitimer (ITIMER_VIRTUAL, &timer, NULL);
-   
-   while(1){}
-}
-
-//Hacer lock de los dos threads, o jutar las dos opciones en un mismo thread
-void *call_publish(){
-   pthread_mutex_lock(&lock_pub);
-   int option;
-   printf("===================== AVAILABLE TOPICS =======================\n");
-   printf("Select a topic to publish\n");
-   for(int i = 0; i < 3; i++){
-      printf("%i.- %s\n", i, topics[i]);
-   }
-   scanf("%i", &option);
-
-   sPublishPackage = publish_building(option, clientID, lengthID);
-
-   if(send(fd,(char *)&sPublishPackage,sizeof(sPublish),0) < 0){
-      perror("Bad send in publish");
-   }
-
-   pthread_mutex_unlock(&lock_pub);
-}
-
-void *call_subscribe(){
-   pthread_mutex_lock(&lock_subs);
-   int option;
-   printf("===================== AVAILABLE TOPICS =======================\n");
-   printf("Select a topic to publish\n");
-   for(int i = 0; i < 3; i++){
-      printf("%i.- %s\n", i, topics[i]);
-   }
-   scanf("%i", &option);
-
-   sSubscribePackage = suscribe_building(option, clientID, lengthID);
-   printf("Size of subscription %li\n", sizeof(sSubscribePackage));
-
-   if(send(fd,(char *)&sSubscribePackage,sizeof(sSubscribe),0) < 0){
-      perror("Bad send in subscribe");
-   }
-   pthread_mutex_unlock(&lock_subs);
-}
+}//Close Main Function
 
 void timer_handler()
 {  
-   pthread_mutex_lock(&lock_timer);
-   sPingReq = ping_building();
+   if(pthread_mutex_lock(&lock_timer) == 0){
 
-	printf("timer expired %d times\n", connCount);
+      printf("%d seconds left\n", connCount);
 
-   sPingReq.msgType = 0xC0; //Request Response = 0xD0
 
-   if(send(fd,(char *)&sPingReq,sizeof(sPing),0) > 0){
-      printf("Ping sent\n");
-      connCount = 10;
+      if(send(fd,(char *)&sPingReq,sizeof(sPing),0) > 0){
+         printf("Ping sent\n");
+      }
+      if ((recv(fd,(char *)&sPingRes,sizeof(sPing),0)) < 0){
+         perror("Ping failed in recv()\n");
+         close(fd);
+      }else{
+         printf("Ping received\n");
+      }
+
+   pthread_mutex_unlock(&lock_timer);
    }
 
+}//Close TImer Handler
 
-   // if ((recv(fd,(char *)&sPingRes,sizeof(sPing),0)) < 0){
-   //    close(fd);
-   // }
-   
-   if(connCount == 0){
-      perror("Keep ALive Time Exceeded");
-      close(fd);
-      exit(-1);
-   }
+// void *call_setimer(){
+//    while(1){}
+// }//Close TImer Setup 
 
-    connCount--;
+// void *call_rx(){
+//    int numbytes;
+//    char *buffer;
+//    if(threadsFlag == 0){
+//       if ((numbytes=recv(fd,buffer,1024,0)) == -1){
+//          printf("Error en recv() rx\n");
+//          close(fd);
+//          exit(-1);
+//       }else{
+//          threadsFlag = 1;
+//       }
+//    }
+// }
 
-    pthread_mutex_unlock(&lock_timer);
-}
+
+// //Hacer lock de los dos threads, o jutar las dos opciones en un mismo thread
+// void *call_publish(){
+//    pthread_mutex_lock(&lock_pub);
+//    int option;
+//    printf("===================== AVAILABLE TOPICS =======================\n");
+//    printf("Select a topic to publish\n");
+//    for(int i = 0; i < 3; i++){
+//       printf("%i.- %s\n", i, topics[i]);
+//    }
+//    scanf("%i", &option);
+
+//    sPublishPackage = publish_building(option, clientID, lengthID);
+
+//    if(send(fd,(char *)&sPublishPackage,sizeof(sPublish),0) < 0){
+//       perror("Bad send in publish");
+//    }
+
+//    pthread_mutex_unlock(&lock_pub);
+// }
+
+// void *call_subscribe(){
+//    pthread_mutex_lock(&lock_subs);
+//    int option;
+//    printf("===================== AVAILABLE TOPICS =======================\n");
+//    printf("Select a topic to publish\n");
+//    for(int i = 0; i < 3; i++){
+//       printf("%i.- %s\n", i, topics[i]);
+//    }
+//    scanf("%i", &option);
+
+//    sSubscribePackage = suscribe_building(option, clientID, lengthID);
+//    printf("Size of subscription %li\n", sizeof(sSubscribePackage));
+
+//    if(send(fd,(char *)&sSubscribePackage,sizeof(sSubscribe),0) < 0){
+//       perror("Bad send in subscribe");
+//    }
+//    pthread_mutex_unlock(&lock_subs);
+// }

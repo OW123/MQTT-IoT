@@ -19,24 +19,19 @@
 #define BACKLOG 5
 #define PORT 1883
 
-int connCount = 0;
 
-int timerCount = 10;
-
-int fd, newfd;
-
-int flagRcv = 1;
-int flagPing = 0;
-
-sPing *sPingReq;
+sPing sPingReq;
 sPing sPingRes;
 
-/*Array of thread for each client*/
-pthread_t threads[BACKLOG], t_timer, t_rx, t_tx;
-pthread_mutex_t lock;
+fd_set read_FDs;
 
-struct sigaction sa;
-struct itimerval timer;
+s_ClientFD client_controller[BACKLOG];
+
+int numConecctions = 0;
+
+/*Array of thread for each client*/
+pthread_t t_rx, t_tx;
+pthread_mutex_t lock;
 
 
 /*Declaring the function prototype*/
@@ -52,9 +47,14 @@ void *call_tx();
 
 
 int main(int argc, char **argv) {
-   int sockfd;
+   int sockfd, newfd;
    struct sockaddr_in host_addr, client_addr;
    socklen_t sin_size;
+
+   pthread_t t_handlerClients, t_timerHandler;
+
+   sConnect connection_frame;
+   sConnectedAck connected_ack_frame = connAck_building();
 
    if((sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
       perror("Socket failed");
@@ -77,23 +77,81 @@ int main(int argc, char **argv) {
    }
 
    printf("Server ready, listening...\n");
+   sin_size = sizeof(struct sockaddr_in);
 
+   if(pthread_create(&t_handlerClients, NULL, handle_client, NULL) < 0){
+      perror("pthread_create failed in handle_client");
+      exit(-1);
+   }
+
+   if(pthread_create(&t_timerHandler, NULL, call_setimer, NULL) < 0){
+      perror("pthread_create failed in set_timer");
+      exit(-1);
+   }
+
+
+   FD_ZERO(&read_FDs);
+   FD_SET(sockfd, &read_FDs);
+
+   numConecctions = sockfd;
 
    while(1) {
-      sin_size = sizeof(struct sockaddr_in);
-      if((newfd = accept(sockfd, (struct sockaddr *)&client_addr, &sin_size)) == -1) {
+      if((newfd = accept(sockfd, (struct sockaddr *)&client_addr, &sin_size)) < 0) {
          perror("Accept failed");
          continue;
-      }
-      connCount++;
-      fd = newfd;
-      printf("Connection from %s received\n", inet_ntoa(client_addr.sin_addr));
+      }else{
+         printf("Connection from %s received\n", inet_ntoa(client_addr.sin_addr));
 
-      /*A thread is created with the ID connection*/
-      if(pthread_create(&threads[newfd], NULL, handle_client, &newfd) < 0) {
-         perror("Thread creation failed");
-         continue;
-      }
+         if((recv(newfd ,(char *)&connection_frame , sizeof(sConnect) , 0)) == -1){
+               perror("recv failed");
+         }
+        printf("ID: %s\n",connection_frame.clientID);
+        printf("Protocol: %X\t msgLen:%X\t lenProtocolName: %X\t protocolName: %s\t protocolVersion: %X\t connectFlag: %X\t lenKeepAlive: %X\t lenClientID: %X\n", connection_frame.msgType, connection_frame.msgLength, connection_frame.lenProtocolName, connection_frame.sProtocolName, connection_frame.protocolVersion, connection_frame.connectFlag, connection_frame.lenKeepAlive, connection_frame.lenClientId);
+         if(connect_validation(connection_frame) != 0){
+            connected_ack_frame.reasonCode = 0x02;
+            if(send(newfd, &connected_ack_frame, sizeof(sConnectedAck), 0) < 0) {
+               
+               perror("Send failed ack\n");
+            }
+            close(newfd);
+         }else{
+            connected_ack_frame.reasonCode = 0x00;
+
+            for(int i = 0; i < BACKLOG; i++) {
+               if(client_controller[i].fd == 0){
+                  client_controller[i].fd = newfd;
+                  strcpy(client_controller[i].clientID, connection_frame.clientID);
+                  client_controller[i].i_KeepALive = connection_frame.lenKeepAlive;
+                  client_controller[i].i_CheckAlive = connection_frame.lenKeepAlive;
+                  client_controller[i].topic1 = false;
+                  client_controller[i].topic2 = false;
+                  client_controller[i].topic3 = false;
+                  FD_SET(client_controller[i].fd, &read_FDs);
+                  if(client_controller[i].fd > numConecctions){
+                     numConecctions = client_controller[i].fd;
+                  }
+
+                  if(client_controller[BACKLOG - 1].fd != 0){
+                     printf("Clients Limit reached\n\n");
+                     connected_ack_frame.reasonCode = 0x01;
+                     if(send(newfd, &connected_ack_frame, sizeof(sConnectedAck), 0) < 0) {
+                           perror("Send failed conn > 5\n");
+                     }
+
+                     break;
+                  }
+                  if(send(newfd, &connected_ack_frame, sizeof(sConnectedAck), 0) < 0) {
+                     perror("Send failed ack success\n");
+                  }
+                  break;
+               }//Close main if of the For loop
+            }
+         }
+
+
+
+      }//Close Else Accept
+      
    }
 
    if(close(sockfd) < 0) {
@@ -102,76 +160,62 @@ int main(int argc, char **argv) {
    }
 
    return 0;
-}
-
+}//Close Main function
 
 void *handle_client(void *socket_desc) {
-    int sock = *(int*)socket_desc;
-    int argv_timeHandler[2];
    int read_size;
 
-    /*Frame structs*/
-    sConnect connection_frame;
-    sConnectedAck connected_ack_frame = connAck_building();
-
-   if(connCount > 5){
-      perror("Too many connections");
-      connected_ack_frame.reasonCode = 0x01;
-      if(send(sock, &connected_ack_frame, sizeof(sConnectedAck), 0) < 0) {
-            perror("Send failed conn > 5\n");
-        }
-      connCount--;
-      close(sock);
+   sPingRes = ping_building();
+   sPingRes.msgType = 0xD0; //Request Response = 0xC0
+   
+   if((read_size = select(numConecctions + 1, &read_FDs, NULL, NULL, NULL) < 0) == -1){
+      perror("Select FD failed\n");
    }
 
-        if((read_size = recv(sock ,(char *)&connection_frame , sizeof(sConnect) , 0)) == -1){
-            perror("recv failed");
-        }
-        printf("ID: %s\n",connection_frame.clientID);
-        printf("Protocol: %X\t msgLen:%X\t lenProtocolName: %X\t protocolName: %s\t protocolVersion: %X\t connectFlag: %X\t lenKeepAlive: %X\t lenClientID: %X\n", connection_frame.msgType, connection_frame.msgLength, connection_frame.lenProtocolName, connection_frame.sProtocolName, connection_frame.protocolVersion, connection_frame.connectFlag, connection_frame.lenKeepAlive, connection_frame.lenClientId);
-
-      //Connection frame validation
-         if(connect_validation(connection_frame) != 0){
-            connected_ack_frame.reasonCode = 0x02;
-            if(send(sock, &connected_ack_frame, sizeof(sConnectedAck), 0) < 0) {
-               
-               perror("Send failed ack\n");
+   while(1){
+      for(int i = 0; i < BACKLOG; i++){
+         if(FD_ISSET(client_controller[i].fd, &read_FDs)){
+            if((read_size = recv(client_controller[i].fd, (char *)&sPingReq, sizeof(sPing) , 0)) < 0){
+               printf("Recv %i\n", read_size);
+               perror("recv failed topics");
+               continue;
             }
-            connCount--;
-            close(sock);
-         }else{
+            printf("Ping req received.\n Type: %X\t Lenght: %X\n", sPingReq.msgType, sPingReq.msgLength);
 
-            connected_ack_frame.reasonCode = 0x00;
-            if(send(sock, &connected_ack_frame, sizeof(sConnectedAck), 0) < 0) {
-               perror("Send failed ack success\n");
+            client_controller[i].i_KeepALive = client_controller[i].i_CheckAlive;
+
+            if(send(client_controller[i].fd,(char *)&sPingRes,sizeof(sPing),0) < 0){
+               perror("Send failed in keepalive\n");
             }
          }
-
-/*Always receiving messages form the clients on each thread*/
-    
-      if(read_size == 0) {
-         perror("Client disconnected\n");
-      } else if(read_size == -1) {
-         perror("Receive failed\n");
       }
-   pthread_create(&t_timer, NULL, call_setimer, NULL);
-   pthread_create(&t_rx, NULL, call_rx, NULL);
-   
-
-
-      pthread_mutex_unlock(&lock);
-
-   if(close(sock) < 0) {
-      perror("Close socket failed\n");
    }
-   connCount--;
 
+   if(close(client_controller[0].fd) < 0){
+      perror("Close failed in handle_client\n");
+   }
    pthread_exit(NULL);
-}
+}//Close Handle Client
 
+void timer_handler(int signum)
+{
+   for(int i = 0; i < BACKLOG; i++){
+      if(client_controller[i].fd != 0){
+         client_controller[i].i_KeepALive--;
+         
+         printf("The client %d is still alive.\t Remaining time: %X\n\n", client_controller[i].fd, client_controller[i].i_KeepALive);
 
+         if(client_controller[i].i_KeepALive == 0){
+            close(client_controller[i].fd);
+            client_controller[i].fd = 0;
+         }
+      }
+   }
+}//Close Timer Handler
 
 void *call_setimer(){
+   struct sigaction sa;
+   struct itimerval timer;
    //Llamada a KeepAlive
    memset (&sa, 0, sizeof (sa));
 	sa.sa_handler = &timer_handler;
@@ -188,8 +232,7 @@ void *call_setimer(){
 	setitimer (ITIMER_VIRTUAL, &timer, NULL);
 	
    while(1){}
-
-}
+}//Close Timer Setup 
 
 // void *call_tx(){
 //    if(flagRcv == 1){
@@ -203,78 +246,48 @@ void *call_setimer(){
 
 // }
 
-void *call_rx(){
-   int read_size;
-   char *buffer;
-   sSubscribe *sSubsPack;
-   sPublish *sPublishPack;
-   buffer = malloc(1024);
+// void *call_rx(){
+//    int read_size;
+//    char *buffer;
+//    sSubscribe *sSubsPack;
+//    sPublish *sPublishPack;
+//    buffer = malloc(1024);
 
-   if(flagRcv == 1){
+//    if(flagRcv == 1){
 
-      if((read_size = recv(fd, buffer, 1024 , 0)) < 0){
-            printf("Recv %i\n", read_size);
-            perror("recv failed topics");
-        }
+//       if((read_size = recv(fd, buffer, 1024 , 0)) < 0){
+//             printf("Recv %i\n", read_size);
+//             perror("recv failed topics");
+//         }
         
-        if(*buffer == 0xC0){
-         sPingReq = malloc(sizeof(sPing));
-         sPingReq = (sPing *)buffer;
-         printf("Ping received\n");
-         if(sPingReq->msgType != 0xC0){
-            close(fd);
-         }else{
-            timerCount = 10;
-            flagRcv = 0;
-            flagPing = 1;
-         }
-         free(buffer);
-         free(sPingReq);
-        }
+//         if(*buffer == 0xC0){
+//          sPingReq = malloc(sizeof(sPing));
+//          sPingReq = (sPing *)buffer;
+//          printf("Ping received\n");
+//          if(sPingReq->msgType != 0xC0){
+//             close(fd);
+//          }else{
+//             timerCount = 10;
+//             flagRcv = 0;
+//             flagPing = 1;
+//          }
+//          free(buffer);
+//          free(sPingReq);
+//         }
 
-        if(*buffer == PUBLISH_HEADER){
-            sPublishPack = (sPublish *)buffer;        
-        }
+//         if(*buffer == PUBLISH_HEADER){
+//             sPublishPack = (sPublish *)buffer;        
+//         }
 
-        if(*buffer == SUBSCRIBE_HEADER){
-            sSubsPack = (sSubscribe *)buffer;
-        }
-   /*Always receiving messages form the clients on each thread*/
+//         if(*buffer == SUBSCRIBE_HEADER){
+//             sSubsPack = (sSubscribe *)buffer;
+//         }
+//    /*Always receiving messages form the clients on each thread*/
     
-      if(read_size == 0) {
-         perror("Client disconnected\n");
-      } else if(read_size == -1) {
-         perror("Receive failed\n");
-      }
-   }
-}
-void timer_handler(int signum)
-{
-   pthread_mutex_lock(&lock);
-	
-   printf("timer expired %d times\n", timerCount);
-
-   sPingRes = ping_building();
-   sPingRes.msgType = 0xD0; //Request Response = 0xC0
-   
-   if(timerCount == 5 && flagRcv == 1){
-      if(send(fd,(char *)&sPingRes,sizeof(sPing),0) > 0){
-         timerCount = 10;
-
-      }else{         
-         close(fd);
-         perror("No ping sent to client\n");
-      }
-   }
-
-   printf("File read is %i\n", fd);
-
-   
-   if(timerCount == 0){
-      timerCount = 11;
-   }
-
-    timerCount--;
-
-   pthread_mutex_unlock(&lock);
-}
+//       if(read_size == 0) {
+//          perror("Client disconnected\n");
+//       } else if(read_size == -1) {
+//          perror("Receive failed\n");
+//       }
+//    }
+// }

@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 /*Connection Defines*/
 #define PACK_CONNECTION_TYPE 0x10
@@ -130,7 +131,15 @@ typedef struct {
     uint16_t packetId;
 }sSubsAck;
 
-
+typedef struct {
+    int fd;
+    char clientID[100];
+    int i_KeepALive;
+    int i_CheckAlive;
+    bool topic1;
+    bool topic2;
+    bool topic3;
+}s_ClientFD;
 
 
 sConnect connection_building(char *clientId, uint16_t clientIdLen, uint16_t keeAlive);
