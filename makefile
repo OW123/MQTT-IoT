@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -g 
+CFLAGS = -g -Wall -Werror
 HEADERS = -pthread
 
 all: serverMQTT clientMQTT

@@ -238,7 +238,7 @@ void *handle_client(void *socket_desc) {
                if(pubClient.topicNum == 0x01){
                   printf("Publishing message to topic 1 from %s client\n\n", client_controller[i].clientID);
                   for(int k = 0; k < BACKLOG; k++){
-                     if(client_controller[k].fd != 0 && client_controller[k].topic1 == true & i != k){
+                     if(client_controller[k].fd != 0 && (client_controller[k].topic1 == true) && i != k){
                         if(send(client_controller[i].fd,(char *)&pubClient,sizeof(sPublish),0) < 0){
                            perror("Send failed in publish to others\n");
                         }
@@ -251,7 +251,7 @@ void *handle_client(void *socket_desc) {
                else if(pubClient.topicNum == 0x02){
                   printf("Publishing message to topic 2 from %s client\n\n", client_controller[i].clientID);
                   for(int k = 0; k < BACKLOG; k++){
-                     if(client_controller[k].fd != 0 && client_controller[k].topic1 == true & i != k){
+                     if(client_controller[k].fd != 0 && client_controller[k].topic1 == true && i != k){
                         if(send(client_controller[i].fd,(char *)&pubClient,sizeof(sPublish),0) < 0){
                            perror("Send failed in publish to others\n");
                         }
@@ -265,7 +265,7 @@ void *handle_client(void *socket_desc) {
                else if(pubClient.topicNum == 0x03){
                   printf("Publishing message to topic 3 from %s client\n\n", client_controller[i].clientID);
                   for(int k = 0; k < BACKLOG; k++){
-                     if(client_controller[k].fd != 0 && client_controller[k].topic1 == true & i != k){
+                     if(client_controller[k].fd != 0 && client_controller[k].topic1 == true && i != k){
                         if(send(client_controller[i].fd,(char *)&pubClient,sizeof(sPublish),0) < 0){
                            perror("Send failed in publish to others\n");
                         }

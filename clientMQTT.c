@@ -48,7 +48,6 @@ int main(int argc, char *argv[])
    int numbytes;
    int option, topic;
    char clientID[50], msgPub[50];
-   int lengthID;
 
    pthread_t t_timer, t_rx;
    struct sockaddr_in server;
@@ -61,7 +60,6 @@ int main(int argc, char *argv[])
    sConnect connect_frame = connection_building(argv[1], strlen(argv[1]), keepAliveUser);
 
    strcpy(clientID, argv[1]);
-   lengthID = strlen(clientID);
 
 
    // iKeepAlive = (int *)argv[2];
