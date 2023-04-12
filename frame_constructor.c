@@ -97,38 +97,32 @@ sPing ping_building(){
 }
 
 
-sPublish publish_building(uint8_t topic, char *clientName,uint16_t clientIdLen){
+sPublish publish_building(uint8_t topic, char *msg){
     sPublish sPublishPack;
     sPublishPack.msgType = PUBLISH_HEADER;
-    sPublishPack.topicName = topic;
-    sPublishPack.propertyLength = PUBLISH_PROPERTY_LEN;
-    sPublishPack.lenClientId = clientIdLen;
-    strcpy(sPublishPack.clientID, clientName);
+    sPublishPack.topicNum = topic;
+    strcpy(sPublishPack.msgPub, msg);
+    sPublishPack.lenMsg = sizeof(sPublish);
 
     return sPublishPack;
 }
 
 
-sPubAck pubAck_building(uint16_t packetId){
+sPubAck pubAck_building(){
     sPubAck sPubAckPack;
 
     sPubAckPack.msgType = PUBACK_TYPE;
-    sPubAckPack.pubPacketId = packetId;
     sPubAckPack.reasonCode = PUBACK_SUCCESS;
-    sPubAckPack.propertyLength = PUBACK_PROPERTY_LEN;
 
     return sPubAckPack;
 }
 
-sSubscribe suscribe_building(uint8_t topic, char *clientName,uint16_t clientIdLen){
+sSubscribe suscribe_building(uint8_t topic){
     sSubscribe sSubscribePack;
 
     sSubscribePack.msgType = SUBSCRIBE_HEADER;
-    sSubscribePack.propertyLength = SUBSCRIBE_PROPERTY_LEN;
-    sSubscribePack.topicName = topic;
-    sSubscribePack.subsOption = SUBSCRIBE_OPTION;
-    sSubscribePack.lenClientId = clientIdLen;
-    strcpy(sSubscribePack.clientID, clientName);
+    sSubscribePack.topicNum = topic;
+    sSubscribePack.lenMsg = sizeof(sSubscribe);
 
     return sSubscribePack;
 }
@@ -155,11 +149,11 @@ sDisconnect disconnect_building(){
     return sDisconnectPack;
 }
 
-sSubsAck subsAck_building(uint16_t packetId){
+sSubsAck subsAck_building(uint8_t code){
     sSubsAck sSubsAckPack;
 
     sSubsAckPack.msgType = SUBACK_HEADER;
-    sSubsAckPack.packetId = packetId;
+    sSubsAckPack.reasonCode = code;
 
     return sSubsAckPack;
 }

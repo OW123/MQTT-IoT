@@ -41,7 +41,7 @@
 #define DISCONNECT_EXPIRY_TIME 0x0A
 
 /*SubsAck Defines*/
-#define SUBACK_HEADER 0x09
+#define SUBACK_HEADER 0x90
 
 
 /*Ping Req Defines*/
@@ -83,28 +83,22 @@ typedef struct {
 
 typedef struct {
     uint8_t msgType;
-    uint8_t topicName;
-    uint8_t propertyLength;
-    uint16_t lenClientId;
-    char clientID[100];
+    uint8_t topicNum;
+    char msgPub[50];
+    uint16_t lenMsg;
 }sPublish;
 
 typedef struct {
     uint8_t msgType;
-    uint16_t pubPacketId;
     uint8_t reasonCode;
-    uint8_t propertyLength;
 }sPubAck;
 
 
 
 typedef struct {
     uint8_t msgType;
-    uint8_t propertyLength;
-    uint8_t topicName;
-    uint8_t subsOption;
-    uint16_t lenClientId;
-    char clientID[100];
+    uint8_t topicNum;
+    uint16_t lenMsg;
 }sSubscribe;
 
 
@@ -128,12 +122,12 @@ typedef struct {
 
 typedef struct {
     uint8_t msgType;
-    uint16_t packetId;
+    uint8_t reasonCode;//0x00 OK 0x01 Error
 }sSubsAck;
 
 typedef struct {
     int fd;
-    char clientID[100];
+    char clientID[50];
     int i_KeepALive;
     int i_CheckAlive;
     bool topic1;
@@ -146,17 +140,17 @@ sConnect connection_building(char *clientId, uint16_t clientIdLen, uint16_t keeA
 
 sConnectedAck connAck_building();
 
-sPublish publish_building(uint8_t topic, char *clientName,uint16_t clientIdLen);
+sPublish publish_building(uint8_t topic, char *msg);
 
-sPubAck pubAck_building(uint16_t packetId);
+sPubAck pubAck_building();
 
-sSubscribe suscribe_building(uint8_t topic, char *clientName,uint16_t clientIdLen);
+sSubscribe suscribe_building(uint8_t topic);
 
 sUnsubs unsubs_building(uint8_t topic, uint16_t topicLen);
 
 sDisconnect disconnect_building();
 
-sSubsAck subsAck_building(uint16_t packetId);
+sSubsAck subsAck_building(uint8_t code);
 
 sPing ping_building();
 

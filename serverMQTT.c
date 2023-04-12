@@ -41,9 +41,6 @@ void timer_handler(int signum);
 
 void *call_setimer();
 
-void *call_rx();
-
-void *call_tx();
 
 
 int main(int argc, char **argv) {
@@ -167,26 +164,127 @@ void *handle_client(void *socket_desc) {
 
    sPingRes = ping_building();
    sPingRes.msgType = 0xD0; //Request Response = 0xC0
-   
-   if((read_size = select(numConecctions + 1, &read_FDs, NULL, NULL, NULL) < 0) == -1){
-      perror("Select FD failed\n");
+   sPublish pubClient;
+   sPubAck pubAck;
+   sSubscribe subsClient;
+   sSubsAck subAck;
+
+
+   if(pthread_mutex_lock(&lock) == 0){
+
+      if((read_size = select(numConecctions + 1, &read_FDs, NULL, NULL, NULL))  == -1){
+         perror("Select FD failed\n");
+      }
+
+      pthread_mutex_unlock(&lock);
    }
+   
 
    while(1){
       for(int i = 0; i < BACKLOG; i++){
          if(FD_ISSET(client_controller[i].fd, &read_FDs)){
-            if((read_size = recv(client_controller[i].fd, (char *)&sPingReq, sizeof(sPing) , 0)) < 0){
+            if((read_size = recv(client_controller[i].fd, (char *)&pubClient, sizeof(sPublish) , 0)) < 0){
                printf("Recv %i\n", read_size);
                perror("recv failed topics");
                continue;
             }
-            printf("Ping req received.\n Type: %X\t Lenght: %X\n", sPingReq.msgType, sPingReq.msgLength);
 
-            client_controller[i].i_KeepALive = client_controller[i].i_CheckAlive;
-
-            if(send(client_controller[i].fd,(char *)&sPingRes,sizeof(sPing),0) < 0){
-               perror("Send failed in keepalive\n");
+            if(read_size <= 0){
+               printf("%s beeing disconnected\n", client_controller[i].clientID);
+               if(pthread_mutex_lock(&lock) == 0){
+                  close(client_controller[i].fd);
+                  FD_CLR(client_controller[i].fd, &read_FDs);
+                  client_controller[i].fd = 0;
+                  pthread_mutex_unlock(&lock);
+               }
             }
+
+            if(pubClient.msgType == 0xC0){
+               sPingReq.msgType = pubClient.msgType;
+               sPingReq.msgLength = 0x00;
+               printf("Ping req received.\n Type: %X\t Lenght: %X\n", sPingReq.msgType, sPingReq.msgLength);
+               client_controller[i].i_KeepALive = client_controller[i].i_CheckAlive;
+               if(send(client_controller[i].fd,(char *)&sPingRes,sizeof(sPing),0) < 0){
+                  perror("Send failed in keepalive\n");
+               }
+            }//Close If ping
+            else if(pubClient.msgType == SUBSCRIBE_HEADER){
+               subsClient.msgType = pubClient.msgType;
+               subsClient.topicNum = pubClient.topicNum;
+               subsClient.lenMsg = sizeof(sSubscribe);
+
+               if(subsClient.topicNum == 0x01 && client_controller[i].topic1 == false){
+                  client_controller[i].topic1 = true;
+                  subAck = subsAck_building(0x00);
+               }
+               else if(subsClient.topicNum == 0x02 && client_controller[i].topic2 == false){
+                  client_controller[i].topic2 = true;
+                  subAck = subsAck_building(0x00);
+               }
+               else if(subsClient.topicNum == 0x03 && client_controller[i].topic3 == false){
+                  client_controller[i].topic3 = true;
+                  subAck = subsAck_building(0x00);
+               }
+               else{
+                  subAck = subsAck_building(0x01);
+               }
+               if(client_controller[i].fd != 0){
+                  if(send(client_controller[i].fd,(char *)&subAck,sizeof(sSubsAck),0) < 0){
+                     perror("Send failed in ackSubs\n");
+                  }
+               }
+            }//Close if Subscribe
+            else if(pubClient.msgType == PUBLISH_HEADER){
+               if(pubClient.topicNum == 0x01){
+                  printf("Publishing message to topic 1 from %s client\n\n", client_controller[i].clientID);
+                  for(int k = 0; k < BACKLOG; k++){
+                     if(client_controller[k].fd != 0 && client_controller[k].topic1 == true & i != k){
+                        if(send(client_controller[i].fd,(char *)&pubClient,sizeof(sPublish),0) < 0){
+                           perror("Send failed in publish to others\n");
+                        }
+                     }
+                  }//Close For 0x01
+
+               }//Close If Publish 0x01
+
+
+               else if(pubClient.topicNum == 0x02){
+                  printf("Publishing message to topic 2 from %s client\n\n", client_controller[i].clientID);
+                  for(int k = 0; k < BACKLOG; k++){
+                     if(client_controller[k].fd != 0 && client_controller[k].topic1 == true & i != k){
+                        if(send(client_controller[i].fd,(char *)&pubClient,sizeof(sPublish),0) < 0){
+                           perror("Send failed in publish to others\n");
+                        }
+                     }
+                  }//Close For 0x02
+
+               }//Close If Publish 0x02
+
+
+
+               else if(pubClient.topicNum == 0x03){
+                  printf("Publishing message to topic 3 from %s client\n\n", client_controller[i].clientID);
+                  for(int k = 0; k < BACKLOG; k++){
+                     if(client_controller[k].fd != 0 && client_controller[k].topic1 == true & i != k){
+                        if(send(client_controller[i].fd,(char *)&pubClient,sizeof(sPublish),0) < 0){
+                           perror("Send failed in publish to others\n");
+                        }
+                     }
+                  }//Close For 0x03
+
+               }//Close If Publish 0x03
+
+               if(client_controller[i].fd != 0){
+                  pubAck = pubAck_building();
+                  if(send(client_controller[i].fd,(char *)&pubAck,sizeof(sPubAck),0) < 0){
+                     perror("Send failed in ackPub\n");
+                  }
+               }
+
+            }
+
+
+
          }
       }
    }
@@ -202,13 +300,17 @@ void timer_handler(int signum)
    for(int i = 0; i < BACKLOG; i++){
       if(client_controller[i].fd != 0){
          client_controller[i].i_KeepALive--;
-         
-         printf("The client %d is still alive.\t Remaining time: %X\n\n", client_controller[i].fd, client_controller[i].i_KeepALive);
 
-         if(client_controller[i].i_KeepALive == 0){
-            close(client_controller[i].fd);
-            client_controller[i].fd = 0;
+         if(client_controller[i].i_KeepALive <= 0){
+            if(pthread_mutex_lock(&lock) == 0){
+               close(client_controller[i].fd);
+               FD_CLR(client_controller[i].fd, &read_FDs);
+               client_controller[i].fd = 0;
+               pthread_mutex_unlock(&lock);
+            }
+
          }
+         
       }
    }
 }//Close Timer Handler
@@ -233,61 +335,3 @@ void *call_setimer(){
 	
    while(1){}
 }//Close Timer Setup 
-
-// void *call_tx(){
-//    if(flagRcv == 1){
-//       if ((recv(fd,(char *)&sPingReq,sizeof(sPing),0)) > 0){
-//          printf("Ping received\n");
-//          timerCount = 10;
-//          flagRcv = 0;
-//       }
-//    }
-
-
-// }
-
-// void *call_rx(){
-//    int read_size;
-//    char *buffer;
-//    sSubscribe *sSubsPack;
-//    sPublish *sPublishPack;
-//    buffer = malloc(1024);
-
-//    if(flagRcv == 1){
-
-//       if((read_size = recv(fd, buffer, 1024 , 0)) < 0){
-//             printf("Recv %i\n", read_size);
-//             perror("recv failed topics");
-//         }
-        
-//         if(*buffer == 0xC0){
-//          sPingReq = malloc(sizeof(sPing));
-//          sPingReq = (sPing *)buffer;
-//          printf("Ping received\n");
-//          if(sPingReq->msgType != 0xC0){
-//             close(fd);
-//          }else{
-//             timerCount = 10;
-//             flagRcv = 0;
-//             flagPing = 1;
-//          }
-//          free(buffer);
-//          free(sPingReq);
-//         }
-
-//         if(*buffer == PUBLISH_HEADER){
-//             sPublishPack = (sPublish *)buffer;        
-//         }
-
-//         if(*buffer == SUBSCRIBE_HEADER){
-//             sSubsPack = (sSubscribe *)buffer;
-//         }
-//    /*Always receiving messages form the clients on each thread*/
-    
-//       if(read_size == 0) {
-//          perror("Client disconnected\n");
-//       } else if(read_size == -1) {
-//          perror("Receive failed\n");
-//       }
-//    }
-// }
